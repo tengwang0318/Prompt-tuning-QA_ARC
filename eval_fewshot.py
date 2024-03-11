@@ -28,7 +28,6 @@ args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device_id)
 
-
 from tqdm import tqdm
 import torch
 import json
@@ -36,7 +35,6 @@ import json
 import transformers
 from modeling_phi import PhiForCausalLM
 from tokenization_codegen import CodeGenTokenizer
-
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -49,7 +47,8 @@ def get_arc_problems(data_path="data/ARC-Easy-test.jsonl"):
     with open(data_path, encoding="utf-8") as f:
         for line in f.readlines():
             json_obj = json.loads(line)
-            candidate_answers = " ".join([f"({label}) {text}" for text, label in zip(json_obj["choices"]["text"], json_obj["choices"]["label"])]).strip()
+            candidate_answers = " ".join([f"({label}) {text}" for text, label in
+                                          zip(json_obj["choices"]["text"], json_obj["choices"]["label"])]).strip()
             for text, label in zip(json_obj["choices"]["text"], json_obj["choices"]["label"]):
                 dataset.append({
                     "id": json_obj["id"],
@@ -67,7 +66,8 @@ def load_all_demonstrations(train_path="data/ARC-Challenge-train.jsonl"):
     with open(train_path, encoding="utf-8") as f:
         for line in f.readlines():
             json_obj = json.loads(line)
-            demonstrations.append((json_obj["question"], json_obj["choices"]["text"], json_obj["choices"]["label"], json_obj["answerKey"]))
+            demonstrations.append((json_obj["question"], json_obj["choices"]["text"], json_obj["choices"]["label"],
+                                   json_obj["answerKey"]))
     print(f"load {len(demonstrations)} demonstrations from {train_path}")
     return demonstrations
 
@@ -110,9 +110,11 @@ def llm_embedder(llm, sentences, is_query=True):
     sentence_embeddings = llm.encode(sentences)
     return sentence_embeddings
 
+
 def candidate_answers_formating(texts, labels):
     candidate_answers = " ".join([f"({label}) {text}" for text, label in zip(texts, labels)]).strip()
     return candidate_answers
+
 
 # task 4
 def example_formating(question, answer=None, candidate_answers=None, prompt_type="v2.0"):
@@ -123,21 +125,21 @@ def example_formating(question, answer=None, candidate_answers=None, prompt_type
             prompt = f"Question: {question}\nCandidate answers: {candidate_answers}\nGold answer:"
     elif prompt_type == "v2.0":
         if answer is not None:
-            prompt = "Write Your Code Here"
+            prompt = f"Question: {question}\nAnswer: {answer}"
         else:
-            prompt = "Write Your Code Here"
+            prompt = f"Question: {question}\nAnswer:"
     else:
         raise NotImplementedError
     return prompt
 
+
 def generate_prompt(question, candidate_answers, prompt_type, N,
                     demonstrations, demonstration_embeddings, embedder,
                     top_k=False, top_k_reverse=False):
-
     indices = list(range(len(demonstrations)))
-    if top_k: # task 5
-        question_embeddings = llm_embedder(embedder, [question], True) # [1, n_dim]
-        similarity = "Write Your Code Here" @ "Write Your Code Here" # [1, n_demo]
+    if top_k:  # task 5
+        question_embeddings = llm_embedder(embedder, [question], True)  # [1, n_dim]
+        similarity = question_embeddings @ demonstration_embeddings.T  # [1, n_demo]
         indices_sorted = sorted(list(range(len(demonstrations))), key=lambda x: similarity[0][x], reverse=True)
         if top_k_reverse:
             indices = indices_sorted[:N][::-1] + indices_sorted[N:]
@@ -157,7 +159,7 @@ def generate_prompt(question, candidate_answers, prompt_type, N,
 
 
 def get_model(
-    base_model: str = "bigcode/starcoder",
+        base_model: str = "bigcode/starcoder",
 ):
     assert base_model, (
         "Please specify a --base_model, e.g. --base_model='bigcode/starcoder'"
@@ -176,6 +178,7 @@ def get_model(
     model.eval()
 
     return tokenizer, model
+
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
     """Tokenize a list of strings."""
@@ -202,9 +205,9 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedToken
 
 
 def preprocess(
-    sources: Sequence[str],
-    targets: Sequence[str],
-    tokenizer: transformers.PreTrainedTokenizer,
+        sources: Sequence[str],
+        targets: Sequence[str],
+        tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     """Preprocess the data by tokenizing."""
     examples = [s + t for s, t in zip(sources, targets)]
@@ -216,9 +219,7 @@ def preprocess(
     return dict(input_ids=torch.stack(input_ids).to(device), labels=torch.stack(labels).to(device))
 
 
-
 def main():
-
     argsdict = vars(args)
     print(pprint.pformat(argsdict))
 
@@ -232,7 +233,8 @@ def main():
     print(f"loaded {args.embedder}.")
 
     demonstrations = load_all_demonstrations(args.data_path.replace("test", "train"))
-    demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations], False) # ndarray: [n_demons, n_dim]
+    demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations],
+                                            False)  # ndarray: [n_demons, n_dim]
 
     for i in tqdm(range(num_samples), ncols=0, total=num_samples):
         output_file = args.output_path + '/{}.jsonl'.format(args.start_index + i)
@@ -256,8 +258,8 @@ def main():
 
         with torch.no_grad():
             # task 6
-            outputs = model("Write Your Code Here")
-            log_likelihood = "Write Your Code Here"
+            outputs = model(**encoding)
+            log_likelihood = outputs.loss * -1
 
         print("Saving results to {}".format(output_file))
         with open(output_file, "w", encoding="utf-8") as f:
@@ -270,8 +272,6 @@ def main():
                 "label": problems[i]["label"],
                 "answerKey": problems[i]["answerKey"],
             }) + "\n")
-
-
 
 
 if __name__ == '__main__':

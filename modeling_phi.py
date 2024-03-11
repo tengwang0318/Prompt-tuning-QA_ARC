@@ -15,7 +15,6 @@
 
 """ PyTorch Phi model."""
 
-
 import math
 from typing import List, Optional, Tuple, Union
 
@@ -138,7 +137,7 @@ class PhiDynamicNTKScalingRotaryEmbedding(PhiRotaryEmbedding):
 
         if seq_len > self.max_position_embeddings:
             base = self.base * (
-                (self.scaling_factor * seq_len / self.max_position_embeddings) - (self.scaling_factor - 1)
+                    (self.scaling_factor * seq_len / self.max_position_embeddings) - (self.scaling_factor - 1)
             ) ** (self.dim / (self.dim - 2))
             inv_freq = 1.0 / (base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim))
             self.register_buffer("inv_freq", inv_freq, persistent=False)
@@ -156,7 +155,7 @@ class PhiDynamicNTKScalingRotaryEmbedding(PhiRotaryEmbedding):
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
+    x2 = x[..., x.shape[-1] // 2:]
     return torch.cat((-x2, x1), dim=-1)
 
 
@@ -195,8 +194,8 @@ class PhiMLP(nn.Module):
         super().__init__()
         self.config = config
         self.activation_fn = ACT2FN[config.hidden_act]
-        self.fc1 = nn.Linear("Write Your Code Here", config.intermediate_size)
-        self.fc2 = nn.Linear(config.intermediate_size, "Write Your Code Here")
+        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         hidden_states = self.fc1(hidden_states)
@@ -249,10 +248,10 @@ class PhiAttention(nn.Module):
                 f" and `num_heads`: {self.num_heads})."
             )
 
-        self.q_proj = nn.Linear("Write Your Code Here", self.num_heads * self.head_dim, bias=True)
-        self.k_proj = nn.Linear("Write Your Code Here", self.num_key_value_heads * self.head_dim, bias=True)
-        self.v_proj = nn.Linear("Write Your Code Here", self.num_key_value_heads * self.head_dim, bias=True)
-        self.dense = nn.Linear(self.num_heads * self.head_dim, "Write Your Code Here", bias=True)
+        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
+        self.dense = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=True)
 
         self.qk_layernorm = config.qk_layernorm
         if self.qk_layernorm:
@@ -293,13 +292,13 @@ class PhiAttention(nn.Module):
                 raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
 
     def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
+            self,
+            hidden_states: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_value: Optional[Cache] = None,
+            output_attentions: bool = False,
+            use_cache: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
 
@@ -329,11 +328,11 @@ class PhiAttention(nn.Module):
         # Partial rotary embedding
         query_rot, query_pass = (
             query_states[..., : self.rotary_emb.dim],
-            query_states[..., self.rotary_emb.dim :],
+            query_states[..., self.rotary_emb.dim:],
         )
         key_rot, key_pass = (
             key_states[..., : self.rotary_emb.dim],
-            key_states[..., self.rotary_emb.dim :],
+            key_states[..., self.rotary_emb.dim:],
         )
         # [batch_size, seq_length, num_heads, head_dim // config.partial_rotary_factor]
         query_rot, key_rot = apply_rotary_pos_emb(query_rot, key_rot, cos, sin, position_ids)
@@ -351,7 +350,7 @@ class PhiAttention(nn.Module):
 
         # Queries and keys upcast to fp32 is required by Phi-2 to avoid overflow
         attn_weights = torch.matmul(
-            "Write Your Code Here", "Write Your Code Here"
+            query_states.to(torch.float32), key_states.to(torch.float32).transpose(2, 3)
         ) / math.sqrt(self.head_dim)
 
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
@@ -371,7 +370,7 @@ class PhiAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(value_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
 
-        attn_output = torch.matmul("Write Your Code Here", "Write Your Code Here")
+        attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
@@ -399,13 +398,13 @@ class PhiDecoderLayer(nn.Module):
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
 
     def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+            self,
+            hidden_states: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            output_attentions: Optional[bool] = False,
+            use_cache: Optional[bool] = False,
+            past_key_value: Optional[Tuple[torch.Tensor]] = None,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
         Args:
@@ -441,7 +440,7 @@ class PhiDecoderLayer(nn.Module):
         attn_outputs = self.resid_dropout(attn_outputs)
 
         feed_forward_hidden_states = self.resid_dropout(self.mlp(hidden_states))
-        hidden_states = attn_outputs + feed_forward_hidden_states + "Write Your Code Here"
+        hidden_states = attn_outputs + feed_forward_hidden_states + residual
         outputs = (hidden_states,)
 
         if output_attentions:
@@ -602,16 +601,16 @@ class PhiModel(PhiPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(PHI_INPUTS_DOCSTRING)
     def forward(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values: Optional[List[torch.FloatTensor]] = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -760,17 +759,17 @@ class PhiForCausalLM(PhiPreTrainedModel):
     @add_start_docstrings_to_model_forward(PHI_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values: Optional[List[torch.FloatTensor]] = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            labels: Optional[torch.LongTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         """
         Args:
@@ -829,4 +828,3 @@ class PhiForCausalLM(PhiPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
