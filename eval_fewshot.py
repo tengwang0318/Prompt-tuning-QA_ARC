@@ -139,7 +139,8 @@ def generate_prompt(question, candidate_answers, prompt_type, N,
     indices = list(range(len(demonstrations)))
     if top_k:  # task 5
         question_embeddings = llm_embedder(embedder, [question], True)  # [1, n_dim]
-        similarity = question_embeddings @ demonstration_embeddings.T  # [1, n_demo]
+        similarity = question_embeddings @ demonstration_embeddings.T  # [1, n_dim] * [n_dim, n_sample] -> [1, n_sample]
+        # at this time, the index of largest one is 0
         indices_sorted = sorted(list(range(len(demonstrations))), key=lambda x: similarity[0][x], reverse=True)
         if top_k_reverse:
             indices = indices_sorted[:N][::-1] + indices_sorted[N:]
@@ -232,7 +233,9 @@ def main():
     embedder = SentenceTransformer(args.embedder, device=device)
     print(f"loaded {args.embedder}.")
 
-    demonstrations = load_all_demonstrations(args.data_path.replace("test", "train"))
+    demonstrations = load_all_demonstrations(args.data_path.replace("test", "train").replace("validation", "train"))
+
+    # only embed the question
     demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations],
                                             False)  # ndarray: [n_demons, n_dim]
 
