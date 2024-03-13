@@ -231,60 +231,60 @@ def preprocess(
 
 
 def main():
-    argsdict = vars(args)
-    print(pprint.pformat(argsdict))
+    with torch.no_grad():
+        argsdict = vars(args)
+        print(pprint.pformat(argsdict))
 
-    problems = get_arc_problems(args.data_path)[args.start_index: args.end_index]
+        problems = get_arc_problems(args.data_path)[args.start_index: args.end_index]
 
-    num_samples = len(problems)
-    tokenizer, model = get_model(base_model=args.model)
-    print(f"Loaded {args.model}.")
+        num_samples = len(problems)
+        tokenizer, model = get_model(base_model=args.model)
+        print(f"Loaded {args.model}.")
 
-    embedder = SentenceTransformer(args.embedder, device=device)
-    print(f"loaded {args.embedder}.")
+        embedder = SentenceTransformer(args.embedder, device=device)
+        print(f"loaded {args.embedder}.")
 
-    demonstrations = load_all_demonstrations(args.data_path.replace("test", "train").replace("validation", "train"))
+        demonstrations = load_all_demonstrations(args.data_path.replace("test", "train").replace("validation", "train"))
 
-    # only embed the question
-    demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations],
-                                            False)  # ndarray: [n_demons, n_dim]
+        # only embed the question
+        demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations],
+                                                False)  # ndarray: [n_demons, n_dim]
 
-    for i in tqdm(range(num_samples), ncols=0, total=num_samples):
-        output_file = args.output_path + '/{}.jsonl'.format(args.start_index + i)
+        for i in tqdm(range(num_samples), ncols=0, total=num_samples):
+            output_file = args.output_path + '/{}.jsonl'.format(args.start_index + i)
 
-        if os.path.exists(output_file) and not args.overwrite:
-            print(f'Skip {output_file} as it already exists')
-            continue
+            if os.path.exists(output_file) and not args.overwrite:
+                print(f'Skip {output_file} as it already exists')
+                continue
 
-        question = problems[i]["question"]
-        answer = problems[i]["answer"]
-        candidate_answers = problems[i]["candidate_answers"]
+            question = problems[i]["question"]
+            answer = problems[i]["answer"]
+            candidate_answers = problems[i]["candidate_answers"]
 
-        source = generate_prompt(question, candidate_answers, args.prompt_type, args.N,
-                                 demonstrations, demonstration_embeddings, embedder,
-                                 top_k=args.top_k, top_k_reverse=args.top_k_reverse)
-        if i == 0:
-            print(f"prompt #{i}: {source}")
+            source = generate_prompt(question, candidate_answers, args.prompt_type, args.N,
+                                    demonstrations, demonstration_embeddings, embedder,
+                                    top_k=args.top_k, top_k_reverse=args.top_k_reverse)
+            if i == 0:
+                print(f"prompt #{i}: {source}")
 
-        target = " {}".format(answer)
-        encoding = preprocess([source], [target], tokenizer)
+            target = " {}".format(answer)
+            encoding = preprocess([source], [target], tokenizer)
 
-        with torch.no_grad():
-            # task 6
+                # task 6
             outputs = model(**encoding)
             log_likelihood = outputs.loss * -1
 
-        print("Saving results to {}".format(output_file))
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "id": problems[i]["id"],
-                "log_likelihood": log_likelihood.tolist(),
-                "question": question,
-                "candidate_answers": candidate_answers,
-                "answer": answer,
-                "label": problems[i]["label"],
-                "answerKey": problems[i]["answerKey"],
-            }) + "\n")
+            print("Saving results to {}".format(output_file))
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "id": problems[i]["id"],
+                    "log_likelihood": log_likelihood.tolist(),
+                    "question": question,
+                    "candidate_answers": candidate_answers,
+                    "answer": answer,
+                    "label": problems[i]["label"],
+                    "answerKey": problems[i]["answerKey"],
+                }) + "\n")
 
 
 if __name__ == '__main__':

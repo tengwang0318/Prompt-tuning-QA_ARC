@@ -5,6 +5,21 @@ import copy
 from str2bool import str2bool
 from typing import Dict, Sequence
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
+import torch
+import json
+
+import transformers
+from modeling_phi import PhiForCausalLM
+from tokenization_codegen import CodeGenTokenizer
+
+# from eval_fewshot import get_arc_problems, get_model, _tokenize_fn, load_all_demonstrations, llm_embedder, \
+#     candidate_answers_formating, example_formating 别import！！md
+
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 IGNORE_INDEX = -100
 
@@ -17,29 +32,26 @@ parser.add_argument('--embedder', type=str, default="")
 parser.add_argument('--output_path', type=str, help="")
 parser.add_argument('--start_index', type=int, default=0, help="")
 parser.add_argument('--end_index', type=int, default=164, help="")
-parser.add_argument('--N', type=int, default=8, help="")
+# parser.add_argument('--N', type=int, default=8, help="")
 parser.add_argument('--max_len', type=int, default=512, help="")
 parser.add_argument('--overwrite', type=str2bool, default=False, help="")
 parser.add_argument('--prompt_type', type=str, default="v1.0", help="")
-parser.add_argument('--top_k', type=str2bool, default=False, help="")
-parser.add_argument('--top_k_reverse', type=str2bool, default=False, help="")
+parser.add_argument("--reverse", type=str2bool, default=True, help="")
+# parser.add_argument('--top_k', type=str2bool, default=False, help="")
+# parser.add_argument('--top_k_reverse', type=str2bool, default=False, help="")
 
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device_id)
 
-from tqdm import tqdm
-import torch
-import json
 
-import transformers
-from modeling_phi import PhiForCausalLM
-from tokenization_codegen import CodeGenTokenizer
+# N = args.N
 
-if torch.cuda.is_available():
-    device = "cuda"
-else:
-    device = "cpu"
+
+def num_tokens_from_string(string: str, tokenizer) -> int:
+    encoding = tokenizer(string, return_tensors="pt")
+    num_tokens = len(encoding['input_ids'][0])
+    return num_tokens
 
 
 def get_arc_problems(data_path="data/ARC-Easy-test.jsonl"):
@@ -133,62 +145,40 @@ def example_formating(question, answer=None, candidate_answers=None, prompt_type
     return prompt
 
 
-def generate_prompt(question, candidate_answers, prompt_type, N,
-                    demonstrations, demonstration_embeddings, embedder,
-                    top_k=False, top_k_reverse=False):
-    indices = list(range(len(demonstrations)))
-    if top_k:  # task 5
-        question_embeddings = llm_embedder(embedder, [question], True)  # [1, n_dim]
-        similarity = question_embeddings @ demonstration_embeddings.T  # [1, n_dim] * [n_dim, n_sample] -> [1, n_sample]
-        # at this time, the index of largest one is 0
-        indices_sorted = sorted(list(range(len(demonstrations))), key=lambda x: similarity[0][x], reverse=True)
-        # print(demonstrations[indices_sorted[0]])
-        # print(demonstrations[indices_sorted[1]])
-        # import time
-        # time.sleep(100)
-        if top_k_reverse:
-            indices = indices_sorted[:N][::-1] + indices_sorted[N:]
-        else:
-            indices = indices_sorted
+def generate_prompt(tokenizer, question, candidate_answers, prompt_type,
+                    demonstrations, demonstration_embeddings, embedder, reverse: bool
+                    ):
+    question_embeddings = llm_embedder(embedder, [question], True)  # [1, n_dim]
+    similarity = question_embeddings @ demonstration_embeddings.T  # [1, n_dim] * [n_dim, n_sample] -> [1, n_sample]
+    # at this time, the index of largest one is 0
+    indices_sorted = sorted(list(range(len(demonstrations))), key=lambda x: similarity[0][x], reverse=True)
 
-    template = ""
-    for idx in indices[:N]:
-        demo = demonstrations[idx]
-        candidate = candidate_answers_formating(demo[1], demo[2])
-        gold = demo[1][demo[2].index(demo[3])]
-        template += f"\n\n{example_formating(demo[0], answer=gold, candidate_answers=candidate, prompt_type=prompt_type)}"
+    template = f"\n\n{example_formating(question, candidate_answers=candidate_answers, prompt_type=prompt_type)}"
+    if reverse:
+        prompt = ""
+        for idx in indices_sorted:
+            demo = demonstrations[idx]
+            candidate = candidate_answers_formating(demo[1], demo[2])
+            gold = demo[1][demo[2].index(demo[3])]
+            temp = f"\n\n{example_formating(demo[0], answer=gold, candidate_answers=candidate, prompt_type=prompt_type)}"
+            if num_tokens_from_string(prompt + temp + template, tokenizer) <= args.max_len - 100:
+                prompt = prompt + temp
+            else:
+                break
+        template = prompt + template
 
-    template += f"\n\n{example_formating(question, candidate_answers=candidate_answers, prompt_type=prompt_type)}"
+    else:
+        for idx in indices_sorted:
+            demo = demonstrations[idx]
+            candidate = candidate_answers_formating(demo[1], demo[2])
+            gold = demo[1][demo[2].index(demo[3])]
 
+            temp_template = f"\n\n{example_formating(demo[0], answer=gold, candidate_answers=candidate, prompt_type=prompt_type)}" + template
+            if num_tokens_from_string(temp_template, tokenizer) <= args.max_len - 100:
+                template = temp_template
+            else:
+                break
     return template.strip()
-
-
-def get_model(
-        base_model: str = "bigcode/starcoder",
-):
-    assert base_model, (
-        "Please specify a --base_model, e.g. --base_model='bigcode/starcoder'"
-    )
-
-    # replace_with_chunkllama(pretraining_length=4096)
-    # tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf", trust_remote_code=True)
-    # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-hf", trust_remote_code=True,
-    #                                              torch_dtype=torch.bfloat16)
-    tokenizer = CodeGenTokenizer.from_pretrained(base_model)
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.pad_token = tokenizer.eos_token
-
-    model = PhiForCausalLM.from_pretrained(
-        base_model,
-        device_map="auto",
-        
-        
-    )
-    model.config.pad_token_id = tokenizer.pad_token_id
-
-    model.eval()
-
-    return tokenizer, model
 
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
@@ -213,6 +203,32 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedToken
         input_ids_lens=input_ids_lens,
         labels_lens=labels_lens,
     )
+
+
+def get_model(
+        base_model: str = "bigcode/starcoder",
+):
+    assert base_model, (
+        "Please specify a --base_model, e.g. --base_model='bigcode/starcoder'"
+    )
+
+    # replace_with_chunkllama(pretraining_length=4096)
+    # tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf", trust_remote_code=True)
+    # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-hf", trust_remote_code=True,
+    #                                              torch_dtype=torch.bfloat16)
+    tokenizer = CodeGenTokenizer.from_pretrained(base_model)
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.pad_token = tokenizer.eos_token
+
+    model = PhiForCausalLM.from_pretrained(
+        base_model,
+        device_map="auto",
+    )
+    model.config.pad_token_id = tokenizer.pad_token_id
+
+    model.eval()
+
+    return tokenizer, model
 
 
 def preprocess(
@@ -260,9 +276,8 @@ def main():
         answer = problems[i]["answer"]
         candidate_answers = problems[i]["candidate_answers"]
 
-        source = generate_prompt(question, candidate_answers, args.prompt_type, args.N,
-                                 demonstrations, demonstration_embeddings, embedder,
-                                 top_k=args.top_k, top_k_reverse=args.top_k_reverse)
+        source = generate_prompt(tokenizer, question, candidate_answers, args.prompt_type,
+                                 demonstrations, demonstration_embeddings, embedder, args.reverse)
         if i == 0:
             print(f"prompt #{i}: {source}")
 

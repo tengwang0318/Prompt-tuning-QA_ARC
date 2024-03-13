@@ -181,8 +181,6 @@ def get_model(
     model = PhiForCausalLM.from_pretrained(
         base_model,
         device_map="auto",
-        
-        
     )
     model.config.pad_token_id = tokenizer.pad_token_id
 
@@ -263,28 +261,30 @@ def main():
         source = generate_prompt(question, candidate_answers, args.prompt_type, args.N,
                                  demonstrations, demonstration_embeddings, embedder,
                                  top_k=args.top_k, top_k_reverse=args.top_k_reverse)
-        if i == 0:
-            print(f"prompt #{i}: {source}")
-
-        target = " {}".format(answer)
-        encoding = preprocess([source], [target], tokenizer)
-
-        with torch.no_grad():
-            # task 6
-            outputs = model(**encoding)
-            log_likelihood = outputs.loss * -1
-
-        print("Saving results to {}".format(output_file))
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "id": problems[i]["id"],
-                "log_likelihood": log_likelihood.tolist(),
-                "question": question,
-                "candidate_answers": candidate_answers,
-                "answer": answer,
-                "label": problems[i]["label"],
-                "answerKey": problems[i]["answerKey"],
-            }) + "\n")
+        print(source)
+        break
+        # if i == 0:
+        #     print(f"prompt #{i}: {source}")
+        #
+        # target = " {}".format(answer)
+        # encoding = preprocess([source], [target], tokenizer)
+        #
+        # with torch.no_grad():
+        #     # task 6
+        #     outputs = model(**encoding)
+        #     log_likelihood = outputs.loss * -1
+        #
+        # print("Saving results to {}".format(output_file))
+        # with open(output_file, "w", encoding="utf-8") as f:
+        #     f.write(json.dumps({
+        #         "id": problems[i]["id"],
+        #         "log_likelihood": log_likelihood.tolist(),
+        #         "question": question,
+        #         "candidate_answers": candidate_answers,
+        #         "answer": answer,
+        #         "label": problems[i]["label"],
+        #         "answerKey": problems[i]["answerKey"],
+        #     }) + "\n")
 
 
 if __name__ == '__main__':
