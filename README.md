@@ -2,31 +2,29 @@
 
 ## **1. Introduction**
 
-**1.1 Task Overview**
+### **1.1 Task Overview**
 
 This task is going to dive into LLM and utilize the most likely ability of LLM, by find the correct answer in the multi-choice question without any fine-tuning or retraining process. 
 
-**1.2 Background and Related Work**
+### **1.2 Background and Related Work**
 
 There has two kinds of QA task, one is to deduce the answer from answer, another is to choose the word that is initially in the question, and extract this word as answer. Before Vanilla Transformers, people used RNN to do text classification task to implement multi-choice question, which means that practitioner needs to train lots of models for different domain. After the advent of Vanilla Transformers and BERT, the paradigm of “fine-tuning” was coming up, which only asks people prepare a small piece of dataset from specific domain and fine-tune the pre-train model on these data. It saves lots of time to train a model from scratch and the performance of “fine-tunning BERT” is SOTA. Since the number of model parameters is becoming bigger and bigger, more and more people couldn’t afford money to train or fine-tune an LLM. So this phenomenon boosts the “prompt tuning” paradigm. Only give the LLM the prompt to inference the result.
 
 ## 2. Methods
 
-## **2.1 baseline**
+### **2.1 baseline**
 
-## the whole procedure could be considered as the following step:
+the whole procedure could be considered as the following step:
 
 1. feed the whole training dataset via bge model get a 2D tensor.
 2. feed every validation dataset via bge model and calculate the inner product with the tensor from step 1(the more inner product it is, the more closed/similar these two tensors have) as the score, sort the score and choose the most likely N sample from training dataset.
 3. build the prompt by using filtered dataset from step 2, in 2 styles, and use LLM to inference the result. 
 
-·   Version 1: “Question: xxx \nCandidate Answer: xxx\nGold Answer:”
+   * Version 1: “Question: xxx \nCandidate Answer: xxx\nGold Answer:”
 
- 
+   * Version 2: “Question:xxx\nAnswer:”
 
-·   Version 2: “Question:xxx\nAnswer:”
-
-**2.2 improvement**
+### **2.2 improvement**
 
 **What I improve:**
 
@@ -40,9 +38,9 @@ There has two kinds of QA task, one is to deduce the answer from answer, another
 
  
 
-**3. Experiment**
+## **3. Experiment**
 
-**3.1 Origin model:**
+### **3.1 Origin model:**
 
 the performance of origin model is as follows: (eval_few_shot.py)
 
@@ -60,31 +58,26 @@ the performance of origin model is as follows: (eval_few_shot.py)
 
 After doing experiments, I found that the following conclusion:
 
-·   the more related training examples in the prompt, the more performance it gets.
-
-·   prompt 2 has better performance than prompt 1 has in the baseline.
-
-·   reversed True affects LLM inferencing process, LLM might be likely to process the most similar text first.
+* the more related training examples in the prompt, the more performance it gets.
+* prompt 2 has better performance than prompt 1 has in the baseline.
+* reversed True affects LLM inferencing process, LLM might be likely to process the most similar text first.
 
 Firstly, find the reason why the baseline doesn’t work well, talk about what baseline might miss and then take action to improve. 
 
-·   the hyperparameters N and max_len might collide with each other, which means that if N is bigger and max_len is small, tokenizer will truncate those last characters. Based on the prompt you defined, the model won’t know what you want it to inference.
+* the hyperparameters N and max_len might collide with each other, which means that if N is bigger and max_len is small, tokenizer will truncate those last characters. Based on the prompt you defined, the model won’t know what you want it to inference.
 
-·   Does Phi1.5 really have the capability to inference? 
+* Does Phi1.5 really have the capability to inference? 
 
-o  Understand that question might help us figure out why prompt 2 has better performance in Phi1.5 than prompt 1 has. Since prompt 2 doesn’t have candidate answer information but it has much better performance in phi1.5, it’s normal that prompt 1 should be better than prompt 2, but the real situation is not true. 
+  * Understand that question might help us figure out why prompt 2 has better performance in Phi1.5 than prompt 1 has. Since prompt 2 doesn’t have candidate answer information but it has much better performance in phi1.5, it’s normal that prompt 1 should be better than prompt 2, but the real situation is not true. 
 
-o  Just execute **tokenizer.batch_decode(output)** to print what Phi1.5 inference and find that the output is full of “computer language code” and Phi1.5 just wants to write code under any other prompts, which is really weird, because the prompt doesn’t contain any code. 
+  * Just execute **tokenizer.batch_decode(output)** to print what Phi1.5 inference and find that the output is full of “computer language code” and Phi1.5 just wants to write code under any other prompts, which is really weird, because the prompt doesn’t contain any code. 
 
-o  So I can deduce that phi1.5 might don’t have enough ability to handle this task. I changed phi1.5 to phi2 and check the output after feeding the prompt, the output is quite reasonable, although it contains some repeated text.
+  * So I can deduce that phi1.5 might don’t have enough ability to handle this task. I changed phi1.5 to phi2 and check the output after feeding the prompt, the output is quite reasonable, although it contains some repeated text.
 
-·   Based on the specified hyper-parameters set, do I choose the most similar come first or the less similar come first in the prompt? 
+* Based on the specified hyper-parameters set, do I choose the most similar come first or the less similar come first in the prompt? 
+  * After experimenting, it’s better to show the most related QA pair first, which might teach LLM to learn at the right direction.
 
-o  After experimenting, it’s better to show the most related QA pair first, which might teach LLM to learn at the right direction.
-
-**3.2 Improvement**
-
- 
+### **3.2 Improvement**
 
 The improvement I did has been shown in the part 2.2. I will illustrate the performance of experiment directly.
 
