@@ -269,7 +269,9 @@ def main():
     embedder = SentenceTransformer(args.embedder, device=device)
     print(f"loaded {args.embedder}.")
 
-    demonstrations = load_all_demonstrations(args.data_path.replace("test", "train").replace("validation", "train"))
+    # demonstrations = load_all_demonstrations(args.data_path.replace("test", "train").replace("validation", "train"))
+    demonstrations = load_all_demonstrations(args.data_path.replace("test", "train"))
+    demonstrations.extend(load_all_demonstrations(args.data_path.replace("test", "validation")))
 
     # only embed the question
     demonstration_embeddings = llm_embedder(embedder, [d[0] for d in demonstrations],
